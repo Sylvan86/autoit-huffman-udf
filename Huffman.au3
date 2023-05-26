@@ -6,10 +6,9 @@
 #include <Math.au3>
 #include "BinaryHelpers.au3"
 
-
 ; #INDEX# =======================================================================================================================
 ; Title .........: Huffman-UDF
-; Version .......: 0.1
+; Version .......: 0.2
 ; AutoIt Version : 3.3.16.1
 ; Language ......: english (german maybe by accident)
 ; Description ...: Functions to efficiently encode strings using Huffman encoding to compress them.
@@ -131,19 +130,19 @@ EndFunc
 ;                  $aHuffTable          - The huffman table as a 2D array as returned by _huff_buildCodeTable() or _huff_decompressCanonicalHuffTable()
 ; Return values .: the decoded string
 ; Author ........: AspirinJunkie
-; Modified ......: 2023-05-09
+; Modified ......: 2023-05-26
 ; ===============================================================================================================================
 Func _huff_decodeBinaryToString(ByRef $bBinary, ByRef $aHuffTable)
-	Local 	$nSize = BinaryLen($bBinary), _
-			$nHuffChars = UBound($aHuffTable), _
+	Local 	$nHuffChars = UBound($aHuffTable), _
 			$iByteCurr = 0, _
-			$iBitPos = 0, _
+			$iBitPos = 3, _
 			$nShift, _
 			$nMask, _
 			$nValueFull, _
 			$nValue, _
 			$nCodeLenCurr = 0, _
-			$sRet = ""
+			$sRet = "", _
+			$nLastBit = BinaryLen($bBinary) * 8 - BitAnd(BinaryMid($bBinary, 1, 1), 7) ; last bit
 
 	; work through the binary step by step detecting and extracting the individual characters
 	Do
@@ -174,12 +173,10 @@ Func _huff_decodeBinaryToString(ByRef $bBinary, ByRef $aHuffTable)
 		Next
 
 		$iBitPos += $nCodeLenCurr
-	Until $iByteCurr > $nSize
+	Until $iBitPos >= $nLastBit
 
-	; Nasty special case: If the first value of the Huffman table has the value 0, then this cannot be distinguished from the filled zeros at the coded string end.
-	; Therefore these are removed with this if they occur at the end.
-	; However, in the special case that a string ends with this character of all things, this would also remove this character.
-	Return StringRegExpReplace($sRet, "(\Q" & $aHuffTable[0][$__HUFF_eHUFFVALUE] & "\E)+\z", "")
+
+	Return $sRet
 EndFunc
 
 
@@ -419,7 +416,7 @@ EndFunc   ;==>_huff_createCanonicalHuffman
 ;                  sString              - the string which should be encoded
 ; Return values .: 2D-Array with encoded char-values: [[value #1, number of bits #1], [value #2, number of bits #2], ..., [value #n, number of bits #n]]
 ; Author ........: AspirinJunkie
-; Modified ......: 2022-03-28
+; Modified ......: 2022-05-26
 ; Related .......: _huff_buildCodeTable(), _huff_convert2CanonicalHuffman()
 ; ===============================================================================================================================
 Func _huff_encodeString2CodeArray(ByRef $aHuffTable, ByRef $sString)
@@ -428,8 +425,9 @@ Func _huff_encodeString2CodeArray(ByRef $aHuffTable, ByRef $sString)
 			$iPos = 1, _
 			$sSubCurr = "", _
 			$nLenCurr, _
-			$aBitStream[$nChars][2], _
-			$iEl = 0
+			$aBitStream[$nChars+1][2] = [[0,3]], _
+			$iEl = 1, _
+			$iBitCurr = 3 ; count the current bit position
 
 	; convert Huff table to map for faster searching:
 	Local $bOnlySingleChars = True, $mHuff[]
@@ -453,6 +451,7 @@ Func _huff_encodeString2CodeArray(ByRef $aHuffTable, ByRef $sString)
 			$aBitStream[$iEl][1] = $aHuffEl[1]
 
 			$iEl += 1
+			$iBitCurr += $aHuffEl[1]
 		Next
 
 	Else
@@ -472,6 +471,7 @@ Func _huff_encodeString2CodeArray(ByRef $aHuffTable, ByRef $sString)
 
 					$iPos += $nLenCurr
 					$iEl += 1
+					$iBitCurr += $aBitStream[$iEl][1]
 					ExitLoop
 				EndIf
 			Next
@@ -479,6 +479,11 @@ Func _huff_encodeString2CodeArray(ByRef $aHuffTable, ByRef $sString)
 		Redim $aBitStream[$iEl][UBound($aBitStream,2)]
 
 	EndIf
+
+	; add the number of unused bits (at the end of the stream) to the first 3 bits of the bit stream
+	Local $nRest = Mod($iBitCurr, 8)
+	If $nRest = 0 Then $nRest = 8
+	$aBitStream[0][0] = 8 - $nRest
 
 	Return $aBitStream
 EndFunc
